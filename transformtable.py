@@ -1,4 +1,3 @@
-# transformtable.py
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.styles import Alignment
@@ -7,51 +6,51 @@ from discord.ext import commands
 import os
 
 def transform_timetable(file_path, output_file_path):
-    # Load the Excel file
+    # 엑셀 파일을 로드합니다.
     df = pd.read_excel(file_path)
 
-    # Convert the date strings to datetime
+    # 날짜 문자열을 datetime으로 변환합니다.
     df['Exam start'] = pd.to_datetime(df['Exam start'], format='%Y. %m. %d. %H:%M:%S')
     df['Finish'] = pd.to_datetime(df['Finish'], format='%Y. %m. %d. %H:%M:%S')
 
-    # Extract the day of the week and time from the 'Exam start' column
+    # 'Exam start' 열에서 요일과 시간을 추출합니다.
     df['Day'] = df['Exam start'].dt.day_name()
     df['Start Time'] = df['Exam start'].dt.strftime('%H:%M')
     df['End Time'] = df['Finish'].dt.strftime('%H:%M')
 
-    # Combine 'Start Time' and 'End Time' to a single time slot column
+    # 'Start Time'과 'End Time'을 하나의 시간 슬롯 열로 결합합니다.
     df['Time Slot'] = df['Start Time'] + ' - ' + df['End Time']
 
-    # Create a combined summary with location
+    # 위치가 포함된 요약을 생성합니다.
     df['Summary with Location'] = df.apply(lambda x: f"{x['Summary']}\n{x['검색결과']}", axis=1)
 
-    # Remove duplicate locations within the same time slot and day
+    # 동일한 시간 슬롯 및 요일 내에서 중복 위치를 제거합니다.
     df['Summary with Location'] = df.groupby(['Time Slot', 'Day'])['Summary with Location'].transform(lambda x: '\n'.join(pd.Series(x).unique()))
 
-    # Define the order of days
+    # 요일 순서를 정의합니다.
     day_order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
 
-    # Create a pivot table with 'Day' as columns and 'Time Slot' as index, ordering the days
+    # 피벗 테이블을 생성하여 'Day'를 열로, 'Time Slot'을 인덱스로 사용하고, 요일을 정렬합니다.
     pivot_table = df.pivot_table(index='Time Slot', columns='Day', values='Summary with Location', aggfunc=lambda x: ' '.join(set(str(v) for v in x)))
     pivot_table = pivot_table[day_order]
 
-    # Create a new workbook and add the pivot table to it
+    # 새 워크북을 만들고 피벗 테이블을 추가합니다.
     wb = Workbook()
     ws = wb.active
 
-    # Add the headers
+    # 헤더를 추가합니다.
     ws.append(['Time Slot'] + day_order)
 
-    # Add the data rows
+    # 데이터 행을 추가합니다.
     for time_slot, row in pivot_table.iterrows():
         ws.append([time_slot] + list(row))
 
-    # Adjust the alignment to center
+    # 정렬을 가운데로 조정합니다.
     for row in ws.iter_rows():
         for cell in row:
             cell.alignment = Alignment(horizontal='center', vertical='center')
 
-    # Save the workbook
+    # 워크북을 저장합니다.
     wb.save(output_file_path)
 
     print(f"Timetable saved to {output_file_path}")
