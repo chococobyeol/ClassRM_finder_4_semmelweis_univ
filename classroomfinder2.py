@@ -3,9 +3,9 @@ from discord.ext import commands
 import aiohttp
 from bs4 import BeautifulSoup
 import logging
-from icalendar import Calendar, Event
-from datetime import datetime
+from icalendar import Calendar
 import os
+import re
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)
@@ -19,7 +19,7 @@ async def fetch_classroom_info(classroom_name):
             async with session.get(search_url) as res:
                 if res.status != 200:
                     logging.error(f"HTTP 요청 오류: 상태 코드 {res.status}")
-                    return None
+                    return None, None, None, None
                 html = await res.text()
         
         soup = BeautifulSoup(html, 'html.parser')
@@ -27,21 +27,29 @@ async def fetch_classroom_info(classroom_name):
         # 모든 검색 결과 행을 찾습니다.
         results = soup.select("#tablepress-16 > tbody > tr")
         
-        classroom_info_list = []
         for result in results:
-            department = result.select_one("td.column-2 > div > div.class-department").get_text(strip=True)
-            address = result.select_one("td.column-2 > div > div.class-address").get_text(strip=True)
-            classroom_info_list.append(f"{department}: {address}")
+            department = result.select_one("td.column-1").get_text(strip=True)
+            address = result.select_one("td.column-2").get_text(strip=True)
+            if classroom_name.lower().replace(' ', '') in department.lower().replace(' ', ''):
+                # 주소에서 숫자 앞부분을 잘라냅니다.
+                address_match = re.search(r'\d.*', address)
+                address_cleaned = address_match.group() if address_match else address
+                
+                # department에서 강의실 코드와 세부 정보를 분리합니다.
+                department_parts = department.split(' - ', 1)
+                classroom_code = department_parts[0]
+                classroom_details = department_parts[1] if len(department_parts) > 1 else ""
+                
+                # 주소 부분을 제거하고 순수한 부서 이름만 추출합니다.
+                pure_department = address.split(',')[0].strip()
+                
+                return classroom_code, classroom_details, pure_department, address_cleaned
         
-        if not classroom_info_list:
-            return None, None
-        
-        # 첫 번째 결과만 사용합니다.
-        return classroom_info_list[0].split(": ")
+        return None, None, None, None
     
     except Exception as e:
         logging.error(f"강의실 정보를 가져오는 중 오류 발생: {e}")
-        return None, None
+        return None, None, None, None
 
 # 디스코드 명령어 핸들러
 class CalendarSearcher(commands.Cog):
@@ -75,10 +83,10 @@ class CalendarSearcher(commands.Cog):
                 if component.name == "VEVENT":
                     location = component.get('LOCATION')
                     if location:
-                        department, address = await fetch_classroom_info(location)
-                        if address:
-                            new_description = f"{location}\nDepartment: {department}\nAddress: {address}"
-                            component['LOCATION'] = address
+                        classroom_code, classroom_details, pure_department, address_cleaned = await fetch_classroom_info(location)
+                        if address_cleaned:
+                            new_description = f"{classroom_code} - {classroom_details}\nDepartment: {pure_department}"
+                            component['LOCATION'] = address_cleaned
                             component['DESCRIPTION'] = new_description
                     new_cal.add_component(component)
 
